@@ -1,0 +1,1511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solar System Simulation</title>
+<style>
+  /* ========== RESET & BASE ========== */
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #000; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: #e8e8f0; user-select: none;
+  }
+  canvas#main { display: block; width: 100%; height: 100%; cursor: grab; }
+  canvas#main.dragging { cursor: grabbing; }
+
+  /* ========== GLASS PANEL MIXIN (via shared styles) ========== */
+  .glass {
+    background: rgba(12, 14, 30, 0.72);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+  }
+
+  /* ========== CONTROL PANEL (bottom-left) ========== */
+  #controls {
+    position: fixed; bottom: 20px; left: 20px;
+    padding: 18px 22px; min-width: 260px;
+    display: flex; flex-direction: column; gap: 14px;
+    z-index: 100;
+  }
+  #controls h3 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 2.5px;
+    color: rgba(180,190,220,0.6); margin-bottom: -4px; font-weight: 600;
+  }
+  .ctrl-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .ctrl-row label { font-size: 13px; color: #c8cad8; white-space: nowrap; }
+
+  /* Slider */
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 140px; height: 5px;
+    background: rgba(255,255,255,0.1); border-radius: 3px; outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: #7ea8f8; cursor: pointer; box-shadow: 0 0 8px rgba(126,168,248,0.5);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%; border: none;
+    background: #7ea8f8; cursor: pointer;
+  }
+  .speed-val { font-size: 13px; color: #7ea8f8; min-width: 42px; text-align: right; font-weight: 600; }
+
+  /* Buttons */
+  .btn {
+    padding: 5px 12px; font-size: 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.07); color: #c8cad8;
+    border: 1px solid rgba(255,255,255,0.1); cursor: pointer;
+    transition: all 0.15s ease; font-family: inherit;
+  }
+  .btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
+  .btn.active { background: rgba(126,168,248,0.2); border-color: rgba(126,168,248,0.35); color: #7ea8f8; }
+  .zoom-btn {
+    width: 30px; height: 30px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: bold;
+  }
+
+  /* ========== DATE DISPLAY (top-center) ========== */
+  #date-display {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    padding: 8px 24px; font-size: 14px; letter-spacing: 1px;
+    color: rgba(220,225,255,0.8); z-index: 100;
+    text-shadow: 0 0 12px rgba(126,168,248,0.3);
+  }
+
+  /* ========== HOVER TOOLTIP ========== */
+  #tooltip {
+    position: fixed; padding: 8px 14px;
+    font-size: 12px; pointer-events: none;
+    opacity: 0; transition: opacity 0.15s ease;
+    z-index: 200;
+    line-height: 1.5;
+  }
+  #tooltip.visible { opacity: 1; }
+  #tooltip .tt-name {
+    font-weight: 700; font-size: 14px; color: #fff;
+    margin-bottom: 2px;
+  }
+  #tooltip .tt-detail {
+    color: rgba(200,205,230,0.8);
+  }
+
+  /* ========== INFO PANEL (slides from right) ========== */
+  #info-panel {
+    position: fixed; top: 20px; right: 20px;
+    width: 310px; max-height: calc(100vh - 40px);
+    overflow-y: auto; padding: 0;
+    z-index: 150;
+    transform: translateX(calc(100% + 24px));
+    transition: transform 0.35s cubic-bezier(.4,0,.2,1);
+  }
+  #info-panel.open { transform: translateX(0); }
+
+  /* Close button */
+  .info-close {
+    position: absolute; top: 12px; right: 14px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(255,255,255,0.07); color: #c8cad8;
+    border: 1px solid rgba(255,255,255,0.1);
+    cursor: pointer; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s ease;
+  }
+  .info-close:hover { background: rgba(255,80,80,0.3); color: #ff9999; }
+
+  /* Portrait canvas */
+  .info-portrait-wrap {
+    display: flex; justify-content: center;
+    padding: 24px 20px 12px;
+  }
+  .info-portrait-wrap canvas { border-radius: 50%; }
+
+  /* Info body */
+  .info-body { padding: 8px 22px 22px; }
+  .info-name {
+    font-size: 22px; font-weight: 700;
+    margin-bottom: 2px;
+    background: linear-gradient(90deg, #fff, rgba(126,168,248,0.9));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .info-type {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: rgba(180,190,220,0.5); margin-bottom: 16px; font-weight: 600;
+  }
+  .info-stats {
+    display: grid; gap: 8px;
+  }
+  .info-stat {
+    display: flex; justify-content: space-between;
+    padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 13px;
+  }
+  .info-stat-key { color: rgba(200,205,230,0.6); }
+  .info-stat-val { color: #e8eaf5; font-weight: 500; text-align: right; max-width: 180px; word-break: break-word; }
+
+  /* Fun fact */
+  .info-fact {
+    margin-top: 14px;
+    padding: 10px 12px;
+    background: rgba(126,168,248,0.08);
+    border-left: 3px solid rgba(126,168,248,0.35);
+    border-radius: 0 8px 8px 0;
+    font-size: 12px; color: rgba(200,210,240,0.85); line-height: 1.55;
+  }
+
+  /* ========== MINIMAP (bottom-right) ========== */
+  #minimap-container {
+    position: fixed; bottom: 20px; right: 20px;
+    width: 160px; height: 160px;
+    z-index: 100;
+    overflow: hidden;
+  }
+  #minimap {
+    display: block; border-radius: 14px;
+  }
+</style>
+</head>
+<body>
+
+<!-- MAIN CANVAS -->
+<canvas id="main"></canvas>
+
+<!-- DATE DISPLAY -->
+<div id="date-display" class="glass">2025-06-27 · Year +0.00</div>
+
+<!-- CONTROL PANEL -->
+<div id="controls" class="glass">
+  <h3>Controls</h3>
+
+  <!-- Speed -->
+  <div class="ctrl-row">
+    <label for="speed-slider">Speed</label>
+    <input type="range" id="speed-slider" min="0" max="100" value="5" step="1">
+    <span class="speed-val" id="speed-val">5×</span>
+  </div>
+
+  <!-- Zoom -->
+  <div class="ctrl-row">
+    <label>Zoom</label>
+    <button class="btn zoom-btn" id="zoom-out">−</button>
+    <span style="font-size:13px;color:#7ea8f8;min-width:42px;text-align:center" id="zoom-val">1.0×</span>
+    <button class="btn zoom-btn" id="zoom-in">+</button>
+  </div>
+
+  <!-- Toggles -->
+  <div class="ctrl-row">
+    <button class="btn active" id="btn-labels">Labels</button>
+    <button class="btn active" id="btn-orbits">Orbits</button>
+    <button class="btn" id="btn-view">Perspective</button>
+  </div>
+</div>
+
+<!-- TOOLTIP -->
+<div id="tooltip" class="glass">
+  <div class="tt-name"></div>
+  <div class="tt-detail"></div>
+</div>
+
+<!-- INFO PANEL -->
+<div id="info-panel" class="glass">
+  <button class="info-close" id="info-close">×</button>
+  <div class="info-portrait-wrap"><canvas id="portrait-canvas" width="80" height="80"></canvas></div>
+  <div class="info-body">
+    <div class="info-name" id="info-name"></div>
+    <div class="info-type" id="info-type"></div>
+    <div class="info-stats" id="info-stats"></div>
+    <div class="info-fact" id="info-fact"></div>
+  </div>
+</div>
+
+<!-- MINIMAP -->
+<div id="minimap-container" class="glass">
+  <canvas id="minimap" width="160" height="160"></canvas>
+</div>
+
+<script>
+/* ================================================================
+ * SOLAR SYSTEM SIMULATION — All-in-One, No Dependencies
+ * ================================================================ */
+
+// ============ DATA: Planets & Bodies ============
+const BASE_DATE = new Date(2025, 5, 27); // June 27, 2025
+const AU_TO_PX_BASE = 80;                 // base pixels per AU at 1x zoom (log-scaled)
+const LOG_SCALE_A   = 90;                 // log-scale multiplier
+const LOG_SCALE_B   = 3.5;                // compression factor for outer planets
+
+/**
+ * Logarithmic scaling: converts real AU distance to screen pixels.
+ * Keeps inner planets visible while still showing outer planet spacing on zoom out.
+ */
+function auToPx(au) {
+  return LOG_SCALE_A * Math.log(1 + LOG_SCALE_B * au);
+}
+
+/** Planet data — all values approximate, scaled for visual clarity. */
+const BODIES = [
+  // --- Sun (not a planet, but included as a focusable body) ---
+  {
+    id: 'sun', name: 'Sun', type: 'Star', category: 'star',
+    radiusKm: 696340,
+    mass: '1.989 × 10³⁰ kg',
+    diameterKm: 1392684,
+    distanceAU: 0, periodYears: null, moons: 0,
+    color: '#FDB813', colors: ['#FFF7D0','#FDB813','#E88A00'],
+    fact: 'The Sun contains 99.86% of the total mass of the Solar System and is a nearly perfect sphere with a diameter about 109 times that of Earth.',
+    screenRadius: 30,
+    spinPeriodDays: 25.4 // equatorial rotation
+  },
+  // --- Inner Planets ---
+  {
+    id: 'mercury', name: 'Mercury', type: 'Terrestrial Planet', category: 'planet',
+    radiusKm: 2439, diameterKm: 4879,
+    mass: '3.301 × 10²³ kg',
+    distanceAU: 0.387, periodYears: 0.241, inclinationDeg: 7.0,
+    eccentricity: 0.2056, moons: 0,
+    color: '#A99F8C', colors: ['#C0B8A8','#A99F8C','#7E7366'],
+    fact: 'Mercury is the smallest planet and despite being closest to the Sun, it is not the hottest — that title belongs to Venus due to its thick atmosphere.',
+    screenRadius: 2.5,
+    spinPeriodDays: 58.6
+  },
+  {
+    id: 'venus', name: 'Venus', type: 'Terrestrial Planet', category: 'planet',
+    radiusKm: 6051, diameterKm: 12104,
+    mass: '4.867 × 10²⁴ kg',
+    distanceAU: 0.723, periodYears: 0.615, inclinationDeg: 3.4,
+    eccentricity: 0.0068, moons: 0,
+    color: '#E8CDA0', colors: ['#F5E6CC','#E8CDA0','#D4B07A'],
+    fact: 'Venus rotates in the opposite direction to most planets (retrograde) and a day on Venus is longer than its year — 243 Earth days vs. 225.',
+    screenRadius: 4,
+    spinPeriodDays: -243, // retrograde
+    hasClouds: true
+  },
+  {
+    id: 'earth', name: 'Earth', type: 'Terrestrial Planet', category: 'planet',
+    radiusKm: 6371, diameterKm: 12756,
+    mass: '5.972 × 10²⁴ kg',
+    distanceAU: 1.000, periodYears: 1.000, inclinationDeg: 0.0,
+    eccentricity: 0.0167, moons: 1,
+    color: '#4A9BD9', colors: ['#5DADE2','#4A9BD9','#3D8B6E'],
+    fact: 'Earth is the only known planet to harbor life and has a global ocean covering about 71% of its surface.',
+    screenRadius: 4.2,
+    spinPeriodDays: 1.0
+  },
+  {
+    id: 'mars', name: 'Mars', type: 'Terrestrial Planet', category: 'planet',
+    radiusKm: 3389, diameterKm: 6792,
+    mass: '6.417 × 10²³ kg',
+    distanceAU: 1.524, periodYears: 1.881, inclinationDeg: 1.85,
+    eccentricity: 0.0934, moons: 2,
+    color: '#C1614E', colors: ['#D48A7A','#C1614E','#9E3B2F'],
+    fact: 'Mars has the tallest volcano in the Solar System — Olympus Mons stands at about 22 km, nearly three times the height of Mount Everest.',
+    screenRadius: 3.2,
+    spinPeriodDays: 1.03,
+    hasPolarCaps: true
+  },
+  // --- Asteroid belt marker (not a body) ---
+  // --- Outer Planets ---
+  {
+    id: 'jupiter', name: 'Jupiter', type: 'Gas Giant', category: 'planet',
+    radiusKm: 69911, diameterKm: 142984,
+    mass: '1.898 × 10²⁷ kg',
+    distanceAU: 5.203, periodYears: 11.86, inclinationDeg: 1.30,
+    eccentricity: 0.0489, moons: 95,
+    color: '#C8A55F', colors: ['#DDBE7B','#C8A55F','#B58C3C'],
+    fact: 'Jupiter is so massive that if it were slightly larger, it could have become a star. Its Great Red Spot is a storm larger than Earth.',
+    screenRadius: 12,
+    spinPeriodDays: 0.41,
+    hasBands: true
+  },
+  {
+    id: 'saturn', name: 'Saturn', type: 'Gas Giant', category: 'planet',
+    radiusKm: 58232, diameterKm: 116464,
+    mass: '5.683 × 10²⁶ kg',
+    distanceAU: 9.537, periodYears: 29.46, inclinationDeg: 2.49,
+    eccentricity: 0.0565, moons: 146,
+    color: '#D4B86A', colors: ['#E8DCA0','#D4B86A','#C0A84F'],
+    fact: 'Saturn\'s rings are made mostly of ice particles ranging in size from tiny grains to house-sized chunks, yet the whole ring system is less than 1 km thick.',
+    screenRadius: 10,
+    spinPeriodDays: 0.45,
+    hasRings: true
+  },
+  {
+    id: 'uranus', name: 'Uranus', type: 'Ice Giant', category: 'planet',
+    radiusKm: 25362, diameterKm: 50724,
+    mass: '8.681 × 10²⁵ kg',
+    distanceAU: 19.19, periodYears: 84.01, inclinationDeg: 0.77,
+    eccentricity: 0.0457, moons: 27,
+    color: '#7EC8D3', colors: ['#AEE4E8','#7EC8D3','#5BAAC6'],
+    fact: 'Uranus rotates on its side with an axial tilt of about 98°, meaning it essentially rolls around the Sun. It also has faint rings tilted almost perpendicular to Saturn\'s.',
+    screenRadius: 7,
+    spinPeriodDays: -0.72, // retrograde
+    hasFaintRings: true
+  },
+  {
+    id: 'neptune', name: 'Neptune', type: 'Ice Giant', category: 'planet',
+    radiusKm: 24622, diameterKm: 49528,
+    mass: '1.024 × 10²⁶ kg',
+    distanceAU: 30.07, periodYears: 164.8, inclinationDeg: 1.77,
+    eccentricity: 0.0113, moons: 16,
+    color: '#3F54BA', colors: ['#5C7BDE','#3F54BA','#2E3F9A'],
+    fact: 'Neptune has the strongest sustained winds in the Solar System, reaching speeds over 2,000 km/h — supersonic compared to Earth.',
+    screenRadius: 6.8,
+    spinPeriodDays: 0.67,
+    hasClouds: true
+  },
+  // --- Dwarf Planet ---
+  {
+    id: 'pluto', name: 'Pluto', type: 'Dwarf Planet', category: 'dwarf',
+    radiusKm: 1188, diameterKm: 2376,
+    mass: '1.309 × 10²² kg',
+    distanceAU: 39.48, periodYears: 248.0, inclinationDeg: 17.16,
+    eccentricity: 0.2488, moons: 5,
+    color: '#B0A090', colors: ['#C8BCA8','#B0A090','#908070'],
+    fact: 'Pluto was reclassified as a dwarf planet in 2006 by the IAU, but it still has a complex geology including mountains of water ice and a heart-shaped glacier.',
+    screenRadius: 1.5,
+    spinPeriodDays: -6.4 // retrograde
+  }
+];
+
+/** Moon orbiting Earth */
+const MOON = {
+  id: 'moon', name: 'Moon', type: 'Natural Satellite', category: 'moon',
+  radiusKm: 1737, diameterKm: 3474,
+  mass: '7.342 × 10²² kg',
+  parent: 'earth', // orbits Earth
+  distanceAU: 0.00257, periodYears: 0.0748, inclinationDeg: 5.14,
+  eccentricity: 0.0549,
+  color: '#C8C8C0', colors: ['#E0E0D8','#C8C8C0','#A8A8A0'],
+  fact: 'The Moon is slowly drifting away from Earth at about 3.8 cm per year, and it always shows us the same face due to tidal locking.',
+  screenRadius: 1.5,
+  spinPeriodDays: 27.3 // tidally locked
+};
+
+// ============ GLOBAL STATE ============
+let canvas, ctx;
+let W, H;                       // current canvas dimensions
+let simTime = 0;                 // simulation time in years from BASE_DATE
+let lastTimestamp = null;
+
+/** Camera state with smooth interpolation targets */
+const camera = {
+  x: 0, y: 0, zoom: 1,
+  targetX: 0, targetY: 0, targetZoom: 1,
+  lerpSpeed: 4.5 // higher = faster snap
+};
+
+/** UI state */
+let focusedBody = null;         // body being tracked by camera
+let hoveredBody = null;         // body under cursor (for tooltip)
+let showLabels = true;
+let showOrbits = true;
+let isPerspective = false;
+let perspectiveAngle = 0;       // animated: 0=top-down, >0=perspective tilt
+const PERSPECTIVE_TARGET    = 0.35; // radians of tilt in perspective mode
+const PERSPECTIVE_LERP_SPEED = 2.5;
+
+// Mouse state for panning
+let isDragging = false;
+let dragStartX = 0, dragStartY = 0;
+let cameraDragStartX = 0, cameraDragStartY = 0;
+
+/** Stars array (generated at init) */
+const stars = [];
+
+/** Asteroid belt particles */
+const asteroids = [];
+
+// ============ INITIALIZATION ============
+function init() {
+  canvas = document.getElementById('main');
+  ctx    = canvas.getContext('2d');
+
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  generateStars(300);
+  generateAsteroids(250);
+
+  setupInputHandlers();
+  setupUIControls();
+
+  // Start the render loop
+  requestAnimationFrame(renderLoop);
+}
+
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+// Generate random stars with varying size, opacity, and twinkle phase
+function generateStars(count) {
+  for (let i = 0; i < count; i++) {
+    const twinkling = Math.random() > 0.65;
+    stars.push({
+      x: Math.random(),               // normalized [0,1]
+      y: Math.random(),
+      size: 0.4 + Math.random() * 2,  // px
+      baseOpacity: 0.3 + Math.random() * 0.7,
+      twinkleSpeed: twinkling ? (1.5 + Math.random() * 3) : 0,
+      twinklePhase: Math.random() * Math.PI * 2,
+      color: ['#ffffff','#ffeedd','#ddeeff'][Math.floor(Math.random()*3)]
+    });
+  }
+}
+
+// Generate asteroid belt particles between Mars (1.5 AU) and Jupiter (5.2 AU)
+function generateAsteroids(count) {
+  for (let i = 0; i < count; i++) {
+    const distAU = 1.8 + Math.random() * 3.0; // spread across belt
+    asteroids.push({
+      distanceAU: distAU,
+      angle: Math.random() * Math.PI * 2,
+      eccentricity: 0.05 + Math.random() * 0.15,
+      periodYears: Math.pow(distAU, 1.5) * (0.9 + Math.random() * 0.2), // Kepler's law
+      size: 0.4 + Math.random() * 1.2,
+      opacity: 0.15 + Math.random() * 0.35,
+      speedOffset: Math.random() * Math.PI * 2 // initial phase
+    });
+  }
+}
+
+// ============ ORBITAL MECHANICS ============
+/** Solve Kepler's equation E - e·sin(E) = M via Newton-Raphson */
+function solveKepler(M, e, iterations = 8) {
+  let E = M; // initial guess
+  for (let i = 0; i < iterations; i++) {
+    const dE = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+    E -= dE;
+  }
+  return E;
+}
+
+/** Compute true anomaly from eccentric anomaly and eccentricity */
+function trueAnomalyFromEccentric(E, e) {
+  const cosNu = (Math.cos(E) - e) / (1 - e * Math.cos(E));
+  const sinNu = Math.sqrt(1 - e*e) * Math.sin(E) / (1 - e * Math.cos(E));
+  return Math.atan2(sinNu, cosNu);
+}
+
+/** Compute the (x,y) position of a body in screen space at given sim time.
+  Returns { x, y } relative to Sun center. */
+function getBodyPosition(body, t) {
+  // Mean anomaly: M = 2π * t / period + initialPhase
+  const meanMotion = (2 * Math.PI) / body.periodYears;
+  const M = meanMotion * t; // starts at periapsis for simplicity
+
+  // Solve Kepler's equation
+  const E = solveKepler(M, body.eccentricity);
+  const nu = trueAnomalyFromEccentric(E, body.eccentricity);
+
+  // Distance from Sun: r = a(1-e²) / (1+e·cos(nu))
+  const r_AU = body.distanceAU * (1 - body.eccentricity * body.eccentricity)
+              / (1 + body.eccentricity * Math.cos(nu));
+
+  // Position in orbital plane
+  let x = auToPx(r_AU) * Math.cos(nu);
+  let y = auToPx(r_AU) * Math.sin(nu);
+
+  // Apply inclination offset for perspective view
+  if (isPerspective || perspectiveAngle > 0.01) {
+    const incRad = body.inclinationDeg * (Math.PI / 180);
+    // Inclination causes the planet to appear above/below the orbital plane
+    // at different points in its orbit, scaled by sin(angle from node)
+    const inclOffset = y * Math.sin(incRad) * perspectiveAngle;
+    y += inclOffset;
+  }
+
+  return { x, y };
+}
+
+/** Get spin angle (radians) of a body at sim time t */
+function getSpin(body, t) {
+  const days = t * 365.25;
+  return (days / Math.abs(body.spinPeriodDays)) * 2 * Math.PI * Math.sign(body.spinPeriodDays);
+}
+
+// ============ RENDER LOOP ============
+function renderLoop(timestamp) {
+  // Delta time in seconds (delta-time based animation)
+  let dt = lastTimestamp ? (timestamp - lastTimestamp) / 1000 : 0.016;
+  if (dt > 0.1) dt = 0.016; // clamp to avoid huge jumps after tab switch
+  lastTimestamp = timestamp;
+
+  const speedMul = parseFloat(document.getElementById('speed-slider').value);
+  simTime += dt * speedMul * 0.02; // scaled so slider=5 gives ~moderate pace
+
+  updateCamera(dt);
+  clearCanvas();
+  drawBackground();
+  drawAsteroidBelt();
+
+  if (showOrbits) {
+    for (const body of BODIES) {
+      if (body.category !== 'star') drawOrbit(body);
+    }
+  }
+
+  // Draw Sun first, then planets by distance (back to front)
+  const sorted = [...BODIES].sort((a,b) => b.distanceAU - a.distanceAU);
+  for (const body of sorted) {
+    if (body.id === 'sun') continue;
+    drawPlanetWithMoon(body);
+  }
+
+  // Draw Sun on top
+  drawSun();
+
+  // Draw labels after planets so they appear above everything
+  if (showLabels) {
+    for (const body of BODIES) {
+      if (body.category === 'star') continue;
+      const pos = getBodyPosition(body, simTime);
+      drawLabel(body.name, toScreen(pos.x), toScreen(pos.y), body.screenRadius * camera.zoom);
+    }
+  }
+
+  // Draw Earth's Moon orbit path and Moon itself
+  drawMoon();
+
+  drawMinimap();
+  updateTooltip();
+
+  requestAnimationFrame(renderLoop);
+}
+
+function clearCanvas() {
+  ctx.fillStyle = '#030510';
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ============ CAMERA & COORDINATE TRANSFORMS ============
+function updateCamera(dt) {
+  const lerp = 1 - Math.exp(-camera.lerpSpeed * dt);
+
+  // Smoothly interpolate camera position and zoom toward targets
+  if (focusedBody) {
+    const pos = getBodyPosition(focusedBody, simTime);
+    camera.targetX = pos.x;
+    camera.targetY = pos.y;
+    // Auto-zoom to a nice viewing distance based on body size
+    const desiredZoom = Math.max(0.5, 2 / (focusedBody.screenRadius || 1));
+    camera.targetZoom = Math.min(desiredZoom, 8);
+  }
+
+  camera.x     += (camera.targetX - camera.x) * lerp;
+  camera.y     += (camera.targetY - camera.y) * lerp;
+  camera.zoom  += (camera.targetZoom - camera.zoom) * lerp;
+
+  // Perspective angle animation
+  if (isPerspective && perspectiveAngle < PERSPECTIVE_TARGET) {
+    perspectiveAngle = Math.min(PERSPECTIVE_TARGET,
+      perspectiveAngle + (PERSPECTIVE_TARGET - perspectiveAngle) * PERSPECTIVE_LERP_SPEED * dt);
+  } else if (!isPerspective && perspectiveAngle > 0.01) {
+    perspectiveAngle *= (1 - PERSPECTIVE_LERP_SPEED * dt);
+    if (perspectiveAngle < 0.01) perspectiveAngle = 0;
+  }
+}
+
+/** World → Screen transform */
+function toScreen(wx, wy) {
+  const cx = W / 2 + camera.x * camera.zoom;
+  const cy = H / 2 - camera.y * camera.zoom; // flip Y for natural coords
+  return { x: cx + wx * camera.zoom, y: cy - wy * camera.zoom };
+}
+
+/** Screen → World transform (for hit-testing) */
+function toWorld(sx, sy) {
+  const cx = W / 2 + camera.x * camera.zoom;
+  const cy = H / 2 - camera.y * camera.zoom;
+  return { x: (sx - cx) / camera.zoom, y: -(sy - cy) / camera.zoom };
+}
+
+// ============ DRAWING: Background Stars ============
+function drawBackground() {
+  for (const star of stars) {
+    let opacity = star.baseOpacity;
+    if (star.twinkleSpeed > 0) {
+      opacity *= 0.5 + 0.5 * Math.sin(simTime * star.twinkleSpeed * 200 + star.twinklePhase);
+    }
+    ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
+    ctx.fillStyle   = star.color;
+    const sx = star.x * W;
+    const sy = star.y * H;
+    ctx.beginPath();
+    ctx.arc(sx, sy, star.size * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============ DRAWING: Asteroid Belt ============
+function drawAsteroidBelt() {
+  for (const ast of asteroids) {
+    // Simple circular orbit with slight eccentricity
+    const angle = ast.angle + (2 * Math.PI / ast.periodYears) * simTime;
+    const r_AU = auToPx(ast.distanceAU * (1 - ast.eccentricity));
+    let wx = r_AU * Math.cos(angle);
+    let wy = r_AU * Math.sin(angle);
+
+    // Perspective tilt on Y
+    if (perspectiveAngle > 0.01) {
+      wy *= Math.cos(perspectiveAngle);
+      wy -= Math.sin(perspectiveAngle) * ast.distanceAU * 3;
+    }
+
+    const s = toScreen(wx, wy);
+    // Only draw if on screen
+    if (s.x < -5 || s.x > W + 5 || s.y < -5 || s.y > H + 5) continue;
+
+    ctx.globalAlpha = ast.opacity * Math.min(1.2, camera.zoom * 0.5);
+    ctx.fillStyle   = '#8a8070';
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, Math.max(0.3, ast.size * camera.zoom * 0.4), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============ DRAWING: Orbital Paths ============
+function drawOrbit(body) {
+  const a = auToPx(body.distanceAU); // semi-major axis in px
+  const e = body.eccentricity;       // eccentricity
+  const b = a * Math.sqrt(1 - e*e);  // semi-minor axis
+  const c = a * e;                    // offset of focus from center
+  const cx = toScreen(-c, 0).x - (W / 2 + camera.x * camera.zoom) + W / 2;
+  // Actually let's compute the ellipse directly in screen coords
+  
+  // Orbital center is shifted by c toward periapsis
+  const orbitCenterX = toScreen(-c, 0).x; // Sun is at focus (offset c from center)
+  const orbitCenterY = toScreen(0, 0).y;
+
+  ctx.save();
+  // Apply perspective tilt: compress Y axis slightly for inclined orbits
+  if (perspectiveAngle > 0.01) {
+    const incRad = body.inclinationDeg * (Math.PI / 180);
+    const effectiveB = b * Math.cos(perspectiveAngle * incRad * 5); // subtle foreshortening
+    ctx.translate(orbitCenterX, orbitCenterY);
+    ctx.scale(1, 1); // keep it simple for now
+    ctx.strokeStyle = body.color + '25';
+    ctx.lineWidth   = Math.max(0.4, 0.8 * camera.zoom);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, a * camera.zoom, effectiveB * camera.zoom,
+                0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  ctx.strokeStyle = body.color + '18';
+  ctx.lineWidth   = Math.max(0.4, 0.7 * camera.zoom);
+  ctx.beginPath();
+  ctx.ellipse(
+    orbitCenterX,
+    orbitCenterY,
+    a * camera.zoom,
+    b * camera.zoom,
+    0, // no rotation
+    0, Math.PI * 2
+  );
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ============ DRAWING: Sun ============
+function drawSun() {
+  const s = toScreen(0, 0);
+  const r = BODIES[0].screenRadius * camera.zoom;
+
+  // --- Corona pulse effect (animated outer glow) ---
+  const pulsePhase = Math.sin(simTime * 3); // slow oscillation
+  const coronaLayers = [
+    { scale: 4.5 + pulsePhase * 0.6, alpha: 0.02 },
+    { scale: 3.5 + pulsePhase * 0.5, alpha: 0.04 },
+    { scale: 2.5 + pulsePhase * 0.4, alpha: 0.08 },
+    { scale: 1.8 + pulsePhase * 0.3, alpha: 0.15 }
+  ];
+
+  for (const layer of coronaLayers) {
+    const cr = r * layer.scale;
+    const grad = ctx.createRadialGradient(s.x, s.y, r * 0.8, s.x, s.y, cr);
+    grad.addColorStop(0,   `rgba(253,184,19,${layer.alpha})`);
+    grad.addColorStop(0.6, `rgba(232,138,0,${layer.alpha * 0.4})`);
+    grad.addColorStop(1,   'rgba(232,138,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, cr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // --- Sun body with radial gradient ---
+  const sunGrad = ctx.createRadialGradient(
+    s.x - r * 0.25, s.y - r * 0.25, r * 0.1,
+    s.x, s.y, r
+  );
+  sunGrad.addColorStop(0,   '#FFFDE8');
+  sunGrad.addColorStop(0.3,'#FDB813');
+  sunGrad.addColorStop(0.7,'#E8940A');
+  sunGrad.addColorStop(1,   '#C67200');
+
+  // Glow shadow behind Sun
+  ctx.save();
+  ctx.shadowColor = 'rgba(253,184,19,0.7)';
+  ctx.shadowBlur  = r * 1.5;
+  ctx.fillStyle   = sunGrad;
+  ctx.beginPath();
+  ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ============ DRAWING: Planets (with details) ============
+function drawPlanetWithMoon(body) {
+  const pos = getBodyPosition(body, simTime);
+  const s   = toScreen(pos.x, pos.y);
+  const r   = body.screenRadius * camera.zoom;
+
+  // Skip if off-screen (with generous margin)
+  if (s.x < -r*3 || s.x > W+r*3 || s.y < -r*3 || s.y > H+r*3) return;
+
+  drawSinglePlanet(body, s.x, s.y, r, pos);
+}
+
+function drawSinglePlanet(body, sx, sy, radius, worldPos = null) {
+  const spin = getSpin(body, simTime);
+
+  // --- Drop-shadow glow matching planet color ---
+  ctx.save();
+  ctx.shadowColor   = body.color + '60';
+  ctx.shadowBlur    = Math.max(3, radius * 1.2);
+
+  // --- Planet body with radial gradient (simulating 3D lighting) ---
+  const grad = ctx.createRadialGradient(
+    sx - radius * 0.35, sy - radius * 0.35, radius * 0.05,
+    sx + radius * 0.1,  sy + radius * 0.1,  radius
+  );
+  grad.addColorStop(0,   body.colors[0]); // highlight
+  grad.addColorStop(0.5, body.colors[1]); // midtone
+  grad.addColorStop(1,   body.colors[2]); // shadow side
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // --- Surface details (only visible when zoomed enough) ---
+  if (radius > 3) drawPlanetDetails(body, sx, sy, radius, spin);
+}
+
+function drawPlanetDetails(body, sx, sy, r, spin) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(sx, sy, r, 0, Math.PI * 2);
+  ctx.clip(); // clip to planet circle
+
+  const bandCount = body.hasBands ? 5 : (body.hasClouds ? 3 : 0);
+
+  if (bandCount > 0) {
+    for (let i = 0; i < bandCount; i++) {
+      const by = sy - r + (i / bandCount) * 2 * r;
+      ctx.fillStyle = body.colors[i % 3] + '50';
+      ctx.fillRect(sx - r, by, 2 * r, r / bandCount * 0.6);
+    }
+  }
+
+  // Jupiter's Great Red Spot
+  if (body.id === 'jupiter' && r > 4) {
+    const spotAngle = spin;
+    const spotX = sx + Math.cos(spotAngle) * r * 0.35;
+    const spotY = sy + r * 0.2;
+    ctx.fillStyle = '#C8613E90';
+    ctx.beginPath();
+    ctx.ellipse(spotX, spotY, r * 0.18, r * 0.1, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Mars polar caps
+  if (body.hasPolarCaps && r > 3) {
+    const capH = r * 0.2;
+    ctx.fillStyle = 'rgba(245,245,250,0.65)';
+    ctx.beginPath();
+    ctx.arc(sx, sy - r + capH * 0.3, capH * 1.2, 0, Math.PI);
+    ctx.fill();
+    // South pole (smaller)
+    ctx.fillStyle = 'rgba(245,245,250,0.4)';
+    ctx.beginPath();
+    ctx.arc(sx, sy + r - capH * 0.3, capH * 0.8, Math.PI, 0);
+    ctx.fill();
+  }
+
+  // Venus cloud swirls (subtle)
+  if (body.hasClouds && body.id === 'venus' && r > 4) {
+    for (let i = 0; i < 3; i++) {
+      const cy2 = sy - r * 0.4 + i * r * 0.4;
+      ctx.strokeStyle = '#F5E6CC80';
+      ctx.lineWidth   = Math.max(0.5, r * 0.04);
+      ctx.beginPath();
+      for (let t = 0; t < Math.PI * 2; t += 0.1) {
+        const px = sx + Math.cos(t + spin * 0.3) * (r * 0.5 + i * r * 0.1);
+        const py = cy2 + Math.sin(t * 2 + spin * 0.5) * r * 0.1;
+        t === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+  }
+
+  // Neptune cloud bands (subtle)
+  if (body.hasClouds && body.id === 'neptune' && r > 4) {
+    for (let i = 0; i < 2; i++) {
+      const cy2 = sy - r * 0.3 + i * r * 0.6;
+      ctx.strokeStyle = '#5C7BDE40';
+      ctx.lineWidth   = Math.max(0.5, r * 0.06);
+      ctx.beginPath();
+      for (let t = 0; t < Math.PI; t += 0.1) {
+        const px = sx - r + t / Math.PI * 2 * r;
+        const py = cy2 + Math.sin(t * 3 + spin) * r * 0.08;
+        t === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+  }
+
+  // Spin indicator: a subtle bright stripe that rotates
+  if (r > 3 && body.category !== 'star') {
+    const stripeAngle = spin;
+    const stripeX = sx + Math.cos(stripeAngle) * r * 0.15;
+    ctx.fillStyle = body.colors[0] + '25';
+    ctx.beginPath();
+    ctx.arc(stripeX, sy, r * 0.08, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore(); // unclip
+
+  // --- Rings for Saturn (drawn around the planet) ---
+  if (body.hasRings && body.id === 'saturn') {
+    drawSaturnRings(sx, sy, r);
+  }
+
+  // --- Faint rings for Uranus (tilted ~90°, so almost edge-on from our view) ---
+  if (body.hasFaintRings && body.id === 'uranus') {
+    drawUranusRings(sx, sy, r);
+  }
+}
+
+/** Draw Saturn's prominent ring system */
+function drawSaturnRings(sx, sy, r) {
+  const tilt = -0.4; // slight angle for visual appeal
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.rotate(tilt + perspectiveAngle * 2); // adjust with view mode
+
+  // Outer ring glow
+  const ringOuterR = r * 2.0;
+  const ringInnerR = r * 1.3;
+
+  // Ring gradient (lighter outer edge)
+  const ringGrad = ctx.createRadialGradient(0, 0, ringInnerR, 0, 0, ringOuterR);
+  ringGrad.addColorStop(0,   'rgba(212,184,106,0.5)');
+  ringGrad.addColorStop(0.3,'rgba(200,170,90,0.35)');
+  ringGrad.addColorStop(0.7,'rgba(180,155,80,0.45)');
+  ringGrad.addColorStop(1,   'rgba(160,140,65,0.1)');
+
+  ctx.strokeStyle = ringGrad;
+  ctx.lineWidth   = (ringOuterR - ringInnerR);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, ringOuterR * 1.3, ringOuterR * 0.45, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Inner bright band (Cassini division hint)
+  const midR = r * 1.6;
+  ctx.strokeStyle = 'rgba(230,210,140,0.25)';
+  ctx.lineWidth   = r * 0.15;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, midR * 1.3, midR * 0.45, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/** Draw Uranus's faint, almost edge-on rings */
+function drawUranusRings(sx, sy, r) {
+  const tilt = -1.4; // nearly edge-on (98° axial tilt → ~-8° from our view)
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.rotate(tilt + perspectiveAngle);
+
+  const ringR = r * 1.6;
+
+  ctx.strokeStyle = 'rgba(126,200,211,0.15)';
+  ctx.lineWidth   = r * 0.3;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, ringR, ringR * 0.08, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Second fainter ring
+  const ringR2 = r * 1.9;
+  ctx.strokeStyle = 'rgba(126,200,211,0.08)';
+  ctx.lineWidth   = r * 0.15;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, ringR2, ringR2 * 0.08, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// ============ DRAWING: Earth's Moon ============
+function drawMoon() {
+  // Find Earth's position first
+  const earthPos = getBodyPosition(BODIES.find(b => b.id === 'earth'), simTime);
+  const earthS   = toScreen(earthPos.x, earthPos.y);
+
+  // Moon orbital mechanics (relative to Earth)
+  const moonMeanMotion = (2 * Math.PI) / MOON.periodYears;
+  const M              = moonMeanMotion * simTime;
+  const E              = solveKepler(M, MOON.eccentricity);
+  const nu             = trueAnomalyFromEccentric(E, MOON.eccentricity);
+  const r_AU           = MOON.distanceAU * (1 - MOON.eccentricity**2) / (1 + MOON.eccentricity * Math.cos(nu));
+  const moonDistPx     = auToPx(r_AU);
+
+  // Moon's world position relative to Earth, then offset by camera
+  const moonWx = earthPos.x + moonDistPx * Math.cos(nu);
+  const moonWy = earthPos.y + moonDistPx * Math.sin(nu) * (perspectiveAngle > 0.01 ? Math.cos(perspectiveAngle) : 1);
+  const moonS  = toScreen(moonWx, moonWy);
+  const mr     = MOON.screenRadius * camera.zoom;
+
+  // Draw Moon orbit path around Earth
+  if (showOrbits && camera.zoom > 0.8) {
+    ctx.strokeStyle = 'rgba(200,200,192,0.1)';
+    ctx.lineWidth   = Math.max(0.3, 0.4 * camera.zoom);
+    ctx.beginPath();
+    // Simplified circular orbit around Earth for visual clarity
+    const earthScreenPos = toScreen(earthPos.x, earthPos.y);
+    for (let a = 0; a <= Math.PI * 2; a += 0.05) {
+      const ox = auToPx(MOON.distanceAU) * Math.cos(a);
+      const oy = auToPx(MOON.distanceAU) * Math.sin(a);
+      const os = toScreen(earthPos.x + ox, earthPos.y + oy);
+      a === 0 ? ctx.moveTo(os.x, os.y) : ctx.lineTo(os.x, os.y);
+    }
+    ctx.stroke();
+  }
+
+  // Draw Moon body
+  drawSinglePlanet(MOON, moonS.x, moonS.y, mr);
+}
+
+// ============ DRAWING: Labels ============
+function drawLabel(name, sx, sy, r) {
+  const labelY = sy - r - 10;
+  if (labelY < 5 || labelY > H - 5) return; // skip if off-screen vertically
+
+  ctx.save();
+  ctx.font = '11px "Segoe UI", system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(230,232,245,0.7)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+
+  // Connecting line from label to planet edge
+  const lineLen = Math.max(8, r * 0.6);
+  ctx.strokeStyle = 'rgba(230,232,245,0.15)';
+  ctx.lineWidth   = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(sx, sy - r);       // top of planet
+  ctx.lineTo(sx, sy - r - lineLen);
+  ctx.stroke();
+
+  ctx.fillText(name, sx, labelY);
+  ctx.restore();
+}
+
+// ============ DRAWING: Minimap (overview) ============
+function drawMinimap() {
+  const mc   = document.getElementById('minimap');
+  const mctx = mc.getContext('2d');
+  const mw   = 160, mh = 160;
+
+  mctx.fillStyle = 'rgba(5,8,20,0.9)';
+  mctx.fillRect(0, 0, mw, mh);
+
+  // Draw all bodies at a fixed small scale (always "at 1×")
+  const miniScale = 3; // very compressed for overview
+  const miniCX    = mw / 2;
+  const miniCY    = mh / 2;
+
+  // Sun dot
+  mctx.fillStyle = '#FDB813';
+  mctx.beginPath();
+  mctx.arc(miniCX, miniCY, 2.5, 0, Math.PI * 2);
+  mctx.fill();
+
+  // Planets on minimap
+  for (const body of BODIES) {
+    if (body.category === 'star') continue;
+    const pos = getBodyPosition(body, simTime);
+    const mx  = miniCX + pos.x / LOG_SCALE_A * 2.8;
+    const my  = miniCY - pos.y / LOG_SCALE_A * 2.8;
+
+    if (mx < 0 || mx > mw || my < 0 || my > mh) continue;
+
+    mctx.fillStyle = body.color;
+    mctx.globalAlpha = body.category === 'dwarf' ? 0.5 : 1;
+    const dotR = Math.max(1, (body.screenRadius / BODIES[4].screenRadius) * 2);
+    mctx.beginPath();
+    mctx.arc(mx, my, dotR, 0, Math.PI * 2);
+    mctx.fill();
+
+    // Highlight focused body
+    if (focusedBody && focusedBody.id === body.id) {
+      mctx.strokeStyle = '#7ea8f8';
+      mctx.lineWidth   = 1;
+      mctx.beginPath();
+      mctx.arc(mx, my, dotR + 2.5, 0, Math.PI * 2);
+      mctx.stroke();
+    }
+  }
+  mctx.globalAlpha = 1;
+
+  // Draw camera viewport rectangle on minimap
+  const worldLeft   = toWorld(0, 0).x;
+  const worldTop    = toWorld(0, 0).y;
+  const worldRight  = toWorld(W, H).x;
+  const worldBottom = toWorld(W, H).y;
+
+  // Map world coords to minimap coords (inverted Y)
+  const mapX = (wx) => miniCX + wx / LOG_SCALE_A * 2.8;
+  const mapY = (wy) => miniCY - wy / LOG_SCALE_A * 2.8;
+
+  mctx.strokeStyle = 'rgba(126,168,248,0.35)';
+  mctx.lineWidth   = 0.8;
+  mctx.strokeRect(mapX(worldLeft), mapY(worldTop),
+                  mapX(worldRight) - mapX(worldLeft),
+                  mapY(worldBottom) - mapY(worldTop));
+}
+
+// ============ HIT-TESTING & INPUT HANDLERS ============
+function hitTest(mx, my) {
+  const w = toWorld(mx, my);
+
+  // Check Sun first (largest target)
+  if (Math.hypot(w.x, w.y) < BODIES[0].screenRadius * 1.5 / camera.zoom) {
+    return BODIES[0];
+  }
+
+  // Check planets in reverse order (front to back for better hit accuracy)
+  const sorted = [...BODIES].reverse();
+  for (const body of sorted) {
+    if (body.category === 'star') continue;
+    const pos = getBodyPosition(body, simTime);
+    const hitR = Math.max(8 / camera.zoom, body.screenRadius * 1.5);
+    if (Math.hypot(w.x - pos.x, w.y - pos.y) < hitR) {
+      return body;
+    }
+  }
+
+  // Check Moon
+  const earthPos = getBodyPosition(BODIES.find(b => b.id === 'earth'), simTime);
+  const moonMeanMotion = (2 * Math.PI) / MOON.periodYears;
+  const M = moonMeanMotion * simTime;
+  const E = solveKepler(M, MOON.eccentricity);
+  const nu = trueAnomalyFromEccentric(E, MOON.eccentricity);
+  const r_AU = MOON.distanceAU * (1 - MOON.eccentricity**2) / (1 + MOON.eccentricity * Math.cos(nu));
+  const moonWx = earthPos.x + auToPx(r_AU) * Math.cos(nu);
+  const moonWy = earthPos.y + auToPx(r_AU) * Math.sin(nu);
+  if (Math.hypot(w.x - moonWx, w.y - moonWy) < 10 / camera.zoom) {
+    return MOON;
+  }
+
+  return null; // empty space
+}
+
+function setupInputHandlers() {
+  // Mouse down: start panning or click to focus
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    cameraDragStartX = camera.targetX;
+    cameraDragStartY = camera.targetY;
+    canvas.classList.add('dragging');
+  });
+
+  // Mouse move: pan or update hover
+  canvas.addEventListener('mousemove', (e) => {
+    if (isDragging) {
+      const dx = e.clientX - dragStartX;
+      const dy = e.clientY - dragStartY;
+      camera.targetX = cameraDragStartX - dx / camera.zoom;
+      camera.targetY = cameraDragStartY + dy / camera.zoom; // flip Y
+    } else {
+      // Update hover for tooltip
+      hoveredBody = hitTest(e.clientX, e.clientY);
+    }
+  });
+
+  // Mouse up: decide if it was a click (focus) or drag (pan)
+  canvas.addEventListener('mouseup', (e) => {
+    isDragging = false;
+    canvas.classList.remove('dragging');
+
+    const dx = Math.abs(e.clientX - dragStartX);
+    const dy = Math.abs(e.clientY - dragStartY);
+
+    // If barely moved, treat as a click
+    if (dx < 5 && dy < 5) {
+      handleClick(e.clientX, e.clientY);
+    }
+  });
+
+  // Mouse leave: clear hover
+  canvas.addEventListener('mouseleave', () => { hoveredBody = null; });
+
+  // Double-click: re-center on Sun
+  canvas.addEventListener('dblclick', () => {
+    focusedBody = BODIES[0]; // Sun
+    camera.targetX = 0;
+    camera.targetY = 0;
+    camera.targetZoom = 1;
+    updateInfoPanel(BODIES[0]);
+  });
+
+  // Scroll wheel: zoom (smooth, clamped)
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const factor = e.deltaY > 0 ? 0.85 : 1.17; // ~15% per scroll tick
+    camera.targetZoom = Math.max(0.2, Math.min(20, camera.targetZoom * factor));
+    updateZoomDisplay();
+  }, { passive: false });
+
+  // Touch support for mobile panning and double-tap recenter
+  let lastTapTime = 0;
+  canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      isDragging = true;
+      dragStartX = e.touches[0].clientX;
+      dragStartY = e.touches[0].clientY;
+      cameraDragStartX = camera.targetX;
+      cameraDragStartY = camera.targetY;
+
+      // Double-tap to recenter
+      const now = Date.now();
+      if (now - lastTapTime < 300) {
+        focusedBody = BODIES[0];
+        camera.targetX = 0; camera.targetY = 0; camera.targetZoom = 1;
+        updateInfoPanel(BODIES[0]);
+        e.preventDefault();
+      }
+      lastTapTime = now;
+    }
+  }, { passive: true });
+
+  canvas.addEventListener('touchmove', (e) => {
+    if (isDragging && e.touches.length === 1) {
+      const dx = e.touches[0].clientX - dragStartX;
+      const dy = e.touches[0].clientY - dragStartY;
+      camera.targetX = cameraDragStartX - dx / camera.zoom;
+      camera.targetY = cameraDragStartY + dy / camera.zoom;
+    }
+  }, { passive: true });
+
+  canvas.addEventListener('touchend', () => { isDragging = false; });
+}
+
+/** Handle a click on the canvas */
+function handleClick(mx, my) {
+  const body = hitTest(mx, my);
+
+  if (body) {
+    // Focus on clicked body
+    focusedBody = body;
+    updateInfoPanel(body);
+  } else {
+    // Clicked empty space: release focus but keep camera position
+    focusedBody = null;
+    closeInfoPanel();
+  }
+
+  // Track mouse position for tooltip placement
+  canvas.addEventListener('mousemove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  });
+}
+
+// ============ UI CONTROLS ============
+function setupUIControls() {
+  const speedSlider = document.getElementById('speed-slider');
+  const speedVal    = document.getElementById('speed-val');
+
+  speedSlider.addEventListener('input', () => {
+    speedVal.textContent = speedSlider.value + '×';
+  });
+
+  // Zoom buttons
+  document.getElementById('zoom-in').addEventListener('click', () => {
+    camera.targetZoom = Math.min(20, camera.targetZoom * 1.4);
+    updateZoomDisplay();
+  });
+  document.getElementById('zoom-out').addEventListener('click', () => {
+    camera.targetZoom = Math.max(0.2, camera.targetZoom / 1.4);
+    updateZoomDisplay();
+  });
+
+  // Toggle labels
+  const btnLabels = document.getElementById('btn-labels');
+  btnLabels.addEventListener('click', () => {
+    showLabels = !showLabels;
+    btnLabels.classList.toggle('active', showLabels);
+  });
+
+  // Toggle orbits
+  const btnOrbits = document.getElementById('btn-orbits');
+  btnOrbits.addEventListener('click', () => {
+    showOrbits = !showOrbits;
+    btnOrbits.classList.toggle('active', showOrbits);
+  });
+
+  // Toggle perspective view
+  const btnView = document.getElementById('btn-view');
+  btnView.addEventListener('click', () => {
+    isPerspective = !isPerspective;
+    btnView.classList.toggle('active', isPerspective);
+  });
+
+  // Info panel close button
+  document.getElementById('info-close').addEventListener('click', () => {
+    focusedBody = null;
+    closeInfoPanel();
+  });
+}
+
+function updateZoomDisplay() {
+  const zv = document.getElementById('zoom-val');
+  if (zv) zv.textContent = camera.targetZoom.toFixed(1) + '×';
+}
+
+// ============ INFO PANEL ============
+function updateInfoPanel(body) {
+  const panel = document.getElementById('info-panel');
+
+  // Name & type
+  document.getElementById('info-name').textContent = body.name;
+  document.getElementById('info-type').textContent = body.type;
+
+  // Stats rows
+  const statsEl = document.getElementById('info-stats');
+  let statsHTML = '';
+  if (body.diameterKm !== undefined) {
+    statsHTML += `<div class="info-stat"><span class="info-stat-key">Diameter</span><span class="info-stat-val">${body.diameterKm.toLocaleString()} km</span></div>`;
+  }
+  if (body.mass) {
+    statsHTML += `<div class="info-stat"><span class="info-stat-key">Mass</span><span class="info-stat-val">${body.mass}</span></div>`;
+  }
+  if (body.distanceAU !== undefined && body.category !== 'star') {
+    const pos = getBodyPosition(body, simTime);
+    const currentDist = Math.sqrt(pos.x * pos.x + pos.y * pos.y) / LOG_SCALE_A / LOG_SCALE_B;
+    statsHTML += `<div class="info-stat"><span class="info-stat-key">Distance</span><span class="info-stat-val">${body.distanceAU} AU (avg)</span></div>`;
+  }
+  if (body.periodYears !== null && body.category !== 'star') {
+    statsHTML += `<div class="info-stat"><span class="info-stat-key">Orbital Period</span><span class="info-stat-val">${body.periodYears} yr</span></div>`;
+  }
+  if (body.moons !== undefined) {
+    statsHTML += `<div class="info-stat"><span class="info-stat-key">Moons</span><span class="info-stat-val">${body.moons}</span></div>`;
+  }
+  statsEl.innerHTML = statsHTML;
+
+  // Fact
+  document.getElementById('info-fact').textContent = body.fact || '';
+
+  // Draw planet portrait on mini canvas
+  drawPlanetPortrait(body);
+
+  panel.classList.add('open');
+}
+
+function closeInfoPanel() {
+  document.getElementById('info-panel').classList.remove('open');
+}
+
+/** Draw a stylized portrait of the body on the info panel's mini canvas */
+function drawPlanetPortrait(body) {
+  const pc   = document.getElementById('portrait-canvas');
+  const pctx = pc.getContext('2d');
+  const pw   = 80, ph = 80;
+  pc.width = pw; pc.height = ph;
+
+  // Background glow
+  pctx.fillStyle = 'rgba(5,8,20,1)';
+  pctx.fillRect(0, 0, pw, ph);
+
+  const cx = pw / 2, cy = ph / 2;
+  const pr = body.category === 'star' ? 26 : Math.min(24, (body.screenRadius || 3) * 1.5);
+
+  // Outer glow
+  pctx.save();
+  pctx.shadowColor = body.color + '80';
+  pctx.shadowBlur  = pr * 1.5;
+
+  const grad = pctx.createRadialGradient(
+    cx - pr * 0.3, cy - pr * 0.3, pr * 0.1,
+    cx + pr * 0.1, cy + pr * 0.1, pr
+  );
+  if (body.colors && body.colors.length >= 3) {
+    grad.addColorStop(0,   body.colors[0]);
+    grad.addColorStop(0.5, body.colors[1]);
+    grad.addColorStop(1,   body.colors[2]);
+  } else {
+    grad.addColorStop(0.4, body.color);
+    grad.addColorStop(1,   '#333');
+  }
+
+  pctx.fillStyle = grad;
+  pctx.beginPath();
+  pctx.arc(cx, cy, pr, 0, Math.PI * 2);
+  pctx.fill();
+  pctx.restore();
+
+  // Rings for Saturn in portrait
+  if (body.hasRings && body.id === 'saturn') {
+    pctx.save();
+    pctx.translate(cx, cy);
+    pctx.rotate(-0.35);
+    const ringGrad = pctx.createRadialGradient(0, 0, pr * 1.3, 0, 0, pr * 2); 
+    ringGrad.addColorStop(0, 'rgba(212,184,106,0.5)');
+    ringGrad.addColorStop(1, 'rgba(160,140,65,0.08)');
+    pctx.strokeStyle = ringGrad;
+    pctx.lineWidth   = pr * 0.7;
+    pctx.beginPath();
+    pctx.ellipse(0, 0, pr * 2, pr * 0.45, 0, 0, Math.PI * 2);
+    pctx.stroke();
+    pctx.restore();
+  }
+
+  // Faint rings for Uranus in portrait (edge-on)
+  if (body.hasFaintRings && body.id === 'uranus') {
+    pctx.save();
+    pctx.translate(cx, cy);
+    pctx.strokeStyle = 'rgba(126,200,211,0.2)';
+    pctx.lineWidth   = pr * 0.3;
+    pctx.beginPath();
+    pctx.ellipse(0, 0, pr * 1.6, pr * 0.08, -1.4, 0, Math.PI * 2);
+    pctx.stroke();
+    pctx.restore();
+  }
+
+  // Jupiter bands in portrait
+  if (body.hasBands && body.id === 'jupiter' && pr > 6) {
+    for (let i = 0; i < 4; i++) {
+      const by2 = cy - pr + (i / 4) * 2 * pr;
+      pctx.fillStyle = '#C8A55F30';
+      pctx.fillRect(cx - pr, by2, pr * 2, pr / 4 * 0.5);
+    }
+    // Great Red Spot
+    if (pr > 10) {
+      pctx.fillStyle = 'rgba(200,97,62,0.35)';
+      pctx.beginPath();
+      pctx.ellipse(cx + pr * 0.3, cy + pr * 0.2, pr * 0.15, pr * 0.1, 0.2, 0, Math.PI * 2);
+      pctx.fill();
+    }
+  }
+
+  // Mars polar caps in portrait
+  if (body.hasPolarCaps && body.id === 'mars' && pr > 6) {
+    const capH = pr * 0.15;
+    pctx.fillStyle = 'rgba(245,245,250,0.5)';
+    pctx.beginPath();
+    pctx.arc(cx, cy - pr + capH * 0.3, capH * 1.3, 0, Math.PI);
+    pctx.fill();
+  }
+
+  // Sun corona in portrait
+  if (body.category === 'star') {
+    for (let i = 3; i >= 0; i--) {
+      const cr2 = pr * (1.5 + i * 0.6);
+      const ag = pctx.createRadialGradient(cx, cy, pr, cx, cy, cr2);
+      ag.addColorStop(0, `rgba(253,184,19,${0.08 - i * 0.015})`);
+      ag.addColorStop(1, 'rgba(253,184,19,0)');
+      pctx.fillStyle = ag;
+      pctx.beginPath();
+      pctx.arc(cx, cy, cr2, 0, Math.PI * 2);
+      pctx.fill();
+    }
+  }
+}
+
+// ============ HOVER TOOLTIP ============
+function updateTooltip() {
+  const tt   = document.getElementById('tooltip');
+  const nameEl = tt.querySelector('.tt-name');
+  const detEl  = tt.querySelector('.tt-detail');
+
+  if (hoveredBody) {
+    nameEl.textContent = hoveredBody.name;
+    // Current distance from Sun in AU (approximate)
+    let distStr = '';
+    if (hoveredBody.category !== 'star') {
+      const pos = getBodyPosition(hoveredBody, simTime);
+      const currentDistAU = Math.sqrt(pos.x * pos.x + pos.y * pos.y) / LOG_SCALE_A / LOG_SCALE_B;
+      distStr = `Distance: ${currentDistAU.toFixed(3)} AU`;
+    } else {
+      distStr = 'Center of the Solar System';
+    }
+    detEl.textContent = distStr;
+
+    // Position tooltip near cursor — we need the last known mouse position
+    tt.classList.add('visible');
+  } else {
+    tt.classList.remove('visible');
+  }
+}
+
+// Track last mouse position for tooltip placement
+let mouseX = 0, mouseY = 0;
+
+// Position the tooltip near cursor
+setInterval(() => {
+  const tt = document.getElementById('tooltip');
+  if (tt.classList.contains('visible')) {
+    let tx = mouseX + 16;
+    let ty = mouseY - 10;
+    // Keep on screen
+    if (tx + 200 > W) tx = mouseX - 180;
+    if (ty < 5) ty = 5;
+    tt.style.left = tx + 'px';
+    tt.style.top  = ty + 'px';
+  }
+}, 30);
+
+// ============ DATE DISPLAY UPDATE ============
+function updateDateDisplay() {
+  const simMs   = simTime * 365.25 * 24 * 3600 * 1000;
+  const simDate = new Date(BASE_DATE.getTime() + simMs);
+
+  // Format: YYYY-MM-DD · Year +N.NN
+  const yearStr  = simDate.getFullYear();
+  const monthStr = String(simDate.getMonth() + 1).padStart(2, '0');
+  const dayStr   = String(simDate.getDate()).padStart(2, '0');
+  const yearsSinceBase = (simTime).toFixed(2);
+
+  document.getElementById('date-display').textContent =
+    `${yearStr}-${monthStr}-${dayStr} · Year +${yearsSinceBase}`;
+}
+
+// Update date display every ~100ms for smoothness
+setInterval(updateDateDisplay, 100);
+
+// ============ START ============
+init();
+</script>
+</body>
+</html>
