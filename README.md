@@ -203,7 +203,7 @@ These recordings demonstrate the model-built HTML apps running in a browser. The
 
 | Parameter | Value |
 |---|---|
-| Benchmark | tool-eval-bench v2.0.6 (`f8117c3`) |
+| Benchmark | [tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench) v2.0.6 (`f8117c3`), © 2026 SeraphimSerapis |
 | Model | `qwopus3.6-27b-coder-mtp` |
 | Backend | vLLM |
 | Host | `spark1` (Linux aarch64, Python 3.11.15) |
@@ -231,6 +231,6 @@ For production use, consider adding output validation for JSON-structured respon
 
 ---
 
-## License
+## Attribution
 
-Add your license here. If unpublished, all rights reserved by default.
+These pages record a MiaAI Lab run of [tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench) v2.0.6. The harness is © 2026 SeraphimSerapis, MIT. The Qwopus model and its weights remain under their own license.
